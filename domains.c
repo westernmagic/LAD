@@ -10,9 +10,8 @@ typedef struct{
 	// If v in D[u] then firstVal[u] <= posInVal[u][v] < firstVal[u]+nbVal[u] 
 	//                   and val[posInVal[u][v]] = v
 	// otherwise posInVal[u][v] >= firstVal[u]+nbVal[u] 
-	int valSize;    // size of val
 	int **firstMatch; // firstMatch[u][v] = pos in match of the first vertex of the covering matching of G_(u,v)
-	int *matching; // matching[firstMatch[u][v]..firstMatch[u][v]+nbSucc[u]-1] = covering matching of G_(u,v)
+	int *matching; // matching[firstMatch[u][v]..firstMatch[u][v]+nbAdj[u]-1] = covering matching of G_(u,v)
 	int nextOutToFilter; // position in toFilter of the next pattern node whose domain should be filtered (-1 if no domain to filter)
 	int lastInToFilter; // position in toFilter of the last pattern node whose domain should be filtered
 	int *toFilter;  // contain all pattern nodes whose domain should be filtered
@@ -20,6 +19,17 @@ typedef struct{
 	int* globalMatchingP; // globalMatchingP[u] = node of Gt matched to u in globalAllDiff(Np)
 	int* globalMatchingT; // globalMatchingT[v] = node of Gp matched to v in globalAllDiff(Np) or -1 if v is not matched
 } Tdomain;
+
+void printDomains(Tdomain *d, int n){
+	int u, i;
+	for (u=0; u<n; u++){
+		printf("D[%d] = ",u);
+		for (i=0; i<d->nbVal[u]; i++)
+			printf("%d ",d->val[d->firstVal[u]+i]);
+		printf("\n");
+	}
+		
+}
 
 bool toFilterEmpty(Tdomain* D){
 	// return true if there is no more nodes in toFilter
@@ -32,14 +42,14 @@ void resetToFilter(Tdomain *D, int size){
 	D->nextOutToFilter = -1;
 }
 
-
 int nextToFilter(Tdomain* D, int size){
-	// precondition: emptyToFilter = false
+	// precondition: toFilterEmpty = false
 	// remove a node from toFilter (FIFO)
 	// unmark this node and return it
 	int u = D->toFilter[D->nextOutToFilter];
 	D->markedToFilter[u] = false;
-	if (D->nextOutToFilter == D->lastInToFilter) // u was the last node in tofilter
+	if (D->nextOutToFilter == D->lastInToFilter) 
+		// u was the last node in tofilter
 		D->nextOutToFilter = -1;
 	else if (D->nextOutToFilter == size-1)
 		D->nextOutToFilter = 0;
@@ -121,8 +131,8 @@ bool removeAllValuesButOne(int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 	// return false if an inconsistency is detected wrt to global all diff
 	int j, oldPos, newPos;
 	// add all successors of u in toFilter
-	for (j=0; j<Gp->nbSucc[u]; j++)
-		addToFilter(Gp->succ[u][j], D, Gp->nbVertices);
+	for (j=0; j<Gp->nbAdj[u]; j++)
+		addToFilter(Gp->adj[u][j], D, Gp->nbVertices);
 	// remove all values but v from D[u]
 	oldPos = D->posInVal[u][v];
 	newPos = D->firstVal[u];
@@ -147,8 +157,8 @@ bool removeValue(int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 	int j;
 
 	// add all successors of u in toFilter
-	for (j=0; j<Gp->nbSucc[u]; j++)
-		addToFilter(Gp->succ[u][j], D, Gp->nbVertices);
+	for (j=0; j<Gp->nbAdj[u]; j++)
+		addToFilter(Gp->adj[u][j], D, Gp->nbVertices);
 	// remove v from D[u]
 	int oldPos = D->posInVal[u][v];
 	D->nbVal[u]--;
@@ -164,6 +174,13 @@ bool removeValue(int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 		return augmentingPath(u,D,Gt->nbVertices);
 	}
 	return true;
+}
+
+bool isCompatible(bool induced, int dirGp, int dirGt){
+	if (dirGp == dirGt) return true;
+	if (induced) return false;
+	if (dirGt == 3) return true;
+	return false;
 }
 
 
@@ -182,26 +199,20 @@ bool matchVertices(int nb, int* toBeMatched, bool induced, Tdomain* D, Tgraph* G
 			if (u != u2){
 				oldNbVal = D->nbVal[u2];
 				if (isInD(u2,v,D) && !removeValue(u2,v,D,Gp,Gt)) return false;
-				if (Gp->isEdge[u][u2]){// remove from D[u2] vertices which are not adjacent to v
+				if (Gp->edgeDirection[u][u2] != 0){// remove from D[u2] vertices which are not adjacent to v
 					j=D->firstVal[u2]; 
 					while (j<D->firstVal[u2]+D->nbVal[u2]){
-						if (Gt->isEdge[v][D->val[j]]>0) j++;
+						if ((!Gp->isLabelled || compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][D->val[j]]))
+							&& (isCompatible(induced, Gp->edgeDirection[u][u2], Gt->edgeDirection[v][D->val[j]]))) j++;
 						else if (!removeValue(u2,D->val[j],D,Gp,Gt)) return false;
 					}
 				}
 				else if (induced){// (u,u2) is not an edge => remove neighbors of v from D[u2]
-				  if (D->nbVal[u2] < Gt->nbSucc[v]){
 					j=D->firstVal[u2]; 
 					while (j<D->firstVal[u2]+D->nbVal[u2]){
-						if (!Gt->isEdge[v][D->val[j]]) j++;
+						if (Gt->edgeDirection[v][D->val[j]] == 0) j++;
 						else if (!removeValue(u2,D->val[j],D,Gp,Gt)) return false;
 					}
-				  }
-				  else{
-				    for (j=0; j<Gt->nbSucc[v]; j++){
-				      if ((isInD(u2,Gt->succ[v][j],D)) && (!removeValue(u2,Gt->succ[v][j],D,Gp,Gt))) return false;
-				    }
-				  }
 				}
 				if (D->nbVal[u2] == 0) return false; // D[u2] is empty
 				if ((D->nbVal[u2] == 1) && (oldNbVal > 1)) toBeMatched[nb++]=u2;
@@ -245,17 +256,36 @@ bool compare(int size_mu, int* mu, int size_mv, int* mv){
 	return true;
 }
 
-bool initDomains(bool initialDomains, char* domainsFile, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
-	// for every pattern node u, initialize D(u) with every vertex v 
-	// such that for every neighbor u' of u there exists a different 
-	// neighbor v' of v such that degree(u) <= degree(v)
-	// if initialDomains, then filter initial domains wrt compatibilities given in file
-	// return false if a domain is empty and true otherwise
-	int val[Gp->nbVertices*Gt->nbVertices];
-	bool dom[Gt->nbVertices];
-	int matchingSize, u, v, i, j;
-	FILE* fd=0;
-	
+bool compatibleVertices(bool induced, int u, int v, Tgraph* Gp, Tgraph* Gt){
+    if (Gp->isLoop[u] != Gt->isLoop[v]){
+        if ((induced) || (Gp->isLoop[u]))
+            return false;
+    }
+	if (Gp->isLabelled && !compatibleVertexLabels(Gp->vertexLabel[u], Gt->vertexLabel[v]))
+		return false;
+	if (!Gp->isDirected && !Gt->isDirected){ // non directed graphs
+		if (Gp->nbAdj[u] > Gt->nbAdj[v]) return false;
+		int i, mu[Gp->nbAdj[u]], mv[Gt->nbAdj[v]];
+		for (i=0; i<Gp->nbAdj[u]; i++) mu[i]=Gp->nbAdj[Gp->adj[u][i]];
+		for (i=0; i<Gt->nbAdj[v]; i++) mv[i]=Gt->nbAdj[Gt->adj[v][i]];
+		return compare(Gp->nbAdj[u], mu, Gt->nbAdj[v], mv);
+	}
+	// directed graphs
+	if (induced){
+		if (Gp->nbPred[u] > Gt->nbPred[v]) return false;
+		if (Gp->nbSucc[u] > Gt->nbSucc[v]) return false;
+		if (Gp->nbAdj[u] - Gp->nbPred[u] - Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v] - Gt->nbSucc[v]) return false;
+		return true;
+	}
+	if (Gp->nbAdj[u] > Gt->nbAdj[v]) return false;
+	if (Gp->nbPred[u] > Gt->nbAdj[v] - Gt->nbSucc[v]) return false;
+	if (Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v]) return false;
+	if (Gp->nbAdj[u] - Gp->nbPred[u] - Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v] - Gt->nbSucc[v]) return false;
+	return true;
+}
+
+Tdomain* createDomains(Tgraph* Gp, Tgraph* Gt){
+	Tdomain* D = (Tdomain*)malloc(sizeof(Tdomain));
 	D->globalMatchingP = (int*)malloc(sizeof(int)*Gp->nbVertices);
 	memset(D->globalMatchingP,-1,sizeof(int)*Gp->nbVertices);
 	D->globalMatchingT = (int*)malloc(sizeof(int)*Gt->nbVertices);
@@ -266,63 +296,45 @@ bool initDomains(bool initialDomains, char* domainsFile, Tdomain* D, Tgraph* Gp,
 	D->firstMatch = (int**)malloc(sizeof(int*)*Gp->nbVertices);  
 	D->markedToFilter = (bool*)calloc(Gp->nbVertices,sizeof(bool));  
 	D->toFilter = (int*)malloc(sizeof(int)*Gp->nbVertices);  
-	D->valSize = 0;
+	return D;
+}	
+
+bool initDomains(bool induced, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
+	// for every pattern node u, initialize D(u) with every vertex v 
+	// such that for every neighbor u' of u there exists a different 
+	// neighbor v' of v such that degree(u) <= degree(v)
+	// if initialDomains, then filter initial domains wrt compatibilities given in file
+	// return false if a domain is empty and true otherwise
+	int val[Gp->nbVertices*Gt->nbVertices];
+	int matchingSize, u, v, i, valSize;
 	matchingSize = 0;
-	if ((initialDomains) && (fd=fopen(domainsFile, "r"))==NULL){
-		printf("ERROR: Cannot open ascii input file %s", domainsFile); 
-		exit(1);	
-	}
-	
+	valSize = 0;
 	for (u=0; u<Gp->nbVertices; u++){
-		if (initialDomains){ // read the list of target vertices which are compatible with u
-			memset(dom,false,sizeof(bool)*Gt->nbVertices);
-			if ((fscanf(fd,"%d",&i)) != 1){
-				printf("ERROR while reading input file %s", domainsFile); 
-				exit(1);
-			}
-			for (j=0; j<i; j++){
-				if ((fscanf(fd,"%d",&v)) != 1){
-					printf("ERROR while reading input file %s", domainsFile); 
-					exit(1);	
-				} 
-				dom[v] = true;
-			}
-		}
 		D->markedToFilter[u] = true;
 		D->toFilter[u] = u;
 		D->nbVal[u] = 0;
 		D->posInVal[u] = (int*)malloc(sizeof(int)*Gt->nbVertices);
 		D->firstMatch[u] = (int*)malloc(sizeof(int)*Gt->nbVertices);
-		D->firstVal[u] = D->valSize;
+		D->firstVal[u] = valSize;
 		for (v=0; v<Gt->nbVertices; v++){
-			if ((initialDomains) && (!dom[v])) // v not in D(u)
+			if (!compatibleVertices(induced, u, v, Gp, Gt)) // v not in D(u)
 				D->posInVal[u][v] = D->firstVal[u]+Gt->nbVertices;
-			else{
+			else { // v in D[u]
 				D->firstMatch[u][v] = matchingSize;
-				matchingSize += Gp->nbSucc[u];
-				if (Gp->nbSucc[u] <= Gt->nbSucc[v]){
-					int mu[Gp->nbSucc[u]], mv[Gt->nbSucc[v]];
-					for (i=0; i<Gp->nbSucc[u]; i++) mu[i]=Gp->nbSucc[Gp->succ[u][i]];
-					for (i=0; i<Gt->nbSucc[v]; i++) mv[i]=Gt->nbSucc[Gt->succ[v][i]];
-					if (compare(Gp->nbSucc[u],mu,Gt->nbSucc[v],mv)==1){
-						val[D->valSize] = v;
-						D->nbVal[u]++;
-						D->posInVal[u][v] = D->valSize++;
-					}
-					else  // v not in D(u)
-						D->posInVal[u][v] = D->firstVal[u]+Gt->nbVertices;
-				}
-				else  // v not in D(u)
-					D->posInVal[u][v] = D->firstVal[u]+Gt->nbVertices;
+				matchingSize += Gp->nbAdj[u];
+				val[valSize] = v;
+				D->nbVal[u]++;
+				D->posInVal[u][v] = valSize++;
 			}
 		}
 		if (D->nbVal[u]==0) return 0; // empty domain
 	}
-	D->val = (int*)malloc(sizeof(int)*D->valSize);
-	for (i=0; i<D->valSize; i++) D->val[i] = val[i];
+	D->val = (int*)malloc(sizeof(int)*valSize);
+	for (i=0; i<valSize; i++) D->val[i] = val[i];
 	D->matching = (int*)malloc(sizeof(int)*matchingSize);
 	memset(D->matching,-1,sizeof(int)*matchingSize);
 	D->nextOutToFilter = 0;
 	D->lastInToFilter = Gp->nbVertices-1;
 	return 1;
 }
+

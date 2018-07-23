@@ -15,6 +15,19 @@
 #define false 0
 #define bool char
 
+
+int* matchedWithV; // matchedWithV[matchedWithU[u]]=u
+int* nbPred; // nbPred[i] = nb of predecessors of the ith vertex of V in the DAG
+int** pred; // pred[i][j] = jth predecessor the ith vertex of V in the DAG
+int* nbSucc; // nbSucc[i] = nb of successors of the ith vertex of U in the DAG
+int** succ; // succ[i][j] = jth successor of the ith vertex of U in the DAG
+int* listV;
+int* listU;
+int* listDV;
+int* listDU;
+
+
+#include "compatibility.c"
 #include "graph.c"
 #include "domains.c"
 #include "allDiff.c"
@@ -25,6 +38,7 @@ int nbNodes = 1;      // number of nodes in the search tree
 int nbFail = 0;       // number of failed nodes in the search tree
 int nbSol = 0;        // number of solutions found
 struct rusage ru;     // reusable structure to get CPU time usage
+
 
 bool filter(bool induced, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 	// filter domains of all vertices in D->toFilter wrt LAD and ensure GAC(allDiff)
@@ -38,7 +52,7 @@ bool filter(bool induced, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 			while (i<D->firstVal[u]+D->nbVal[u]){
 				// for every target node v in D(u), check if G_(u,v) has a covering matching
 				v=D->val[i]; 
-				if (checkLAD(u,v,D,Gp,Gt)) i++;
+				if (checkLAD(induced,u,v,D,Gp,Gt)) i++;
 				else if (!removeValue(u,v,D,Gp,Gt)) return false;
 			}
 			if ((D->nbVal[u]==1) && (oldNbVal>1) && (!matchVertex(u,induced,D,Gp,Gt))) return false;
@@ -133,30 +147,30 @@ void usage(int status){
 	printf("Usage:\n");
 	printf("  -p FILE  Input pattern graph (mandatory)\n");
 	printf("  -t FILE  Input target graph (mandatory)\n\n"); 
-	printf("  -d FILE  Input domain\n"); 
-	printf("  -l INT   Set CPU time limit in seconds (default: 60)\n");
-	printf("  -f       Stop at first solution\n");
-	printf("  -i       Search for an induced subgraph (default: partial subgraph)\n");
+	printf("  -s INT   Set CPU time limit in seconds (default: 60)\n");
+	printf("  -l       Labelled graphs (default: non labelled graphs)\n");
+	printf("  -f       Stop at first solution (default: search for all solutions)\n");
+	printf("  -i       Search for an induced subgraph (default: search for partial subgraph)\n");
 	printf("  -v       Print solutions (default: only number of solutions)\n");
 	printf("  -vv      Be verbose\n");
 	printf("  -h       Print this help message\n");
 	exit(status);
 }
 
-void parse(int* timeLimit, bool* firstSol, bool* i, int* verbose, bool* initialDomains,  char* fileNameGp, char* fileNameGt, char* fileNameD, char* argv[], int argc){
+void parse(bool* isLabelled, int* timeLimit, bool* firstSol, bool* i, int* verbose,  char* fileNameGp, char* fileNameGt, char* argv[], int argc){
 	// get parameter values
 	// return false if an error occurs; true otherwise
 	char ch;
 	extern char* optarg;
-	while ( (ch = getopt(argc, argv, "hik:p:t:a:fl:vd:"))!=-1 ) {
+	while ( (ch = getopt(argc, argv, "lvfs:ip:t:d:h"))!=-1 ) {
 		switch(ch) {
 			case 'v': (*verbose)++; break;
 			case 'f': *firstSol=true; break;
-			case 'l': *timeLimit=atoi(optarg); break;
+			case 's': *timeLimit=atoi(optarg); break;
 			case 'i': *i=true; break;
+			case 'l': *isLabelled=true; break;
 			case 'p': strncpy(fileNameGp, optarg, 254); break;
 			case 't': strncpy(fileNameGt, optarg, 254); break;
-			case 'd': *initialDomains=1; strncpy(fileNameD, optarg, 254); break;
 			case 'h': usage(0);
 			default:
 				printf("Unknown option: %c.\n", ch);
@@ -190,60 +204,69 @@ int main(int argc, char* argv[]){
 	// Parameters
 	char fileNameGp[1024]; // Name of the file that contains the pattern graph
 	char fileNameGt[1024]; // Name of the file that contains the target graph
-	char fileNameD[1024];  // Name of the file that contains initial domains
 	int timeLimit=60;      // Default: CPU time limit set to 60 seconds
 	int verbose = 0;       // Default: non verbose execution
-	bool induced = false;  // Default: partial subgraph
+	bool induced = false;  // Default: search for partial subgraph
 	bool firstSol = false; // Default: search for all solutions
-	bool initialDomains = false;// Default: initial domains are not provided
+	bool isLabelled = false; // Default: non labelled graphs
 	fileNameGp[0] = 0;
 	fileNameGt[0] = 0;
-	parse(&timeLimit, &firstSol, &induced, &verbose, &initialDomains,
-	      fileNameGp, fileNameGt, fileNameD, argv, argc);
-	if (verbose >= 1){
-		printf("Parameters: induced=%d firstSol=%d timeLimit=%d verbose=%d fileNameGp=%s fileNameGt=%s",
-			   induced,firstSol,timeLimit,verbose,fileNameGp,fileNameGt);
-		if (initialDomains>0) printf(" fileNameD=%s\n",fileNameD);
-		else printf("\n");
-	}
+	parse(&isLabelled, &timeLimit, &firstSol, &induced, &verbose, fileNameGp, fileNameGt, argv, argc);
+	if (verbose >= 2)
+		printf("Parameters: isLabelled=%d induced=%d firstSol=%d timeLimit=%d verbose=%d fileNameGp=%s fileNameGt=%s\n",
+			   isLabelled, induced,firstSol,timeLimit,verbose,fileNameGp,fileNameGt);
 	
-	// Initialize graphs
-	Tgraph Gp;       // Pattern graph
-	Tgraph Gt;       // Target graph
-	createGraph(fileNameGp, &Gp);
-	createGraph(fileNameGt, &Gt);
-	if (Gp.nbVertices > Gt.nbVertices){
+	// Initialize graphs                                                                                                                            
+	Tgraph *Gp = createGraph(fileNameGp, isLabelled);       // Pattern graph                                                                            
+	Tgraph *Gt = createGraph(fileNameGt, isLabelled);       // Target graph                                                                             
+	if (verbose >= 2){
+		printf("Pattern graph:\n");
+		printGraph(Gp);
+		printf("Target graph:\n");
+		printGraph(Gt);
+	}
+    
+    matchedWithV = (int*)malloc(Gt->nbVertices*sizeof(int));
+    nbPred = (int*)malloc(Gt->nbVertices*sizeof(int));
+    pred = (int**)malloc(Gt->nbVertices*sizeof(int*));
+    succ  = (int**)malloc(Gt->nbVertices*sizeof(int*));
+    for (int i=0; i<Gt->nbVertices; i++){
+        pred[i] = (int*)malloc(Gt->nbVertices*sizeof(int));
+        succ[i] = (int*)malloc(Gt->nbVertices*sizeof(int));
+    }
+    nbSucc  = (int*)malloc(Gt->nbVertices*sizeof(int));
+    listV  = (int*)malloc(Gt->nbVertices*sizeof(int));
+    listDV  = (int*)malloc(Gt->nbVertices*sizeof(int));
+    listU  = (int*)malloc(Gp->nbVertices*sizeof(int));
+    listDU  = (int*)malloc(Gp->nbVertices*sizeof(int));
+
+	// Initialize domains                                                                                                                           
+	Tdomain *D = createDomains(Gp, Gt);
+	if (!initDomains(induced, D, Gp, Gt)) return printStats(false);
+	if (verbose >= 2) printDomains(D, Gp->nbVertices);
+
+	// Check the global all different constraint                                                                                                    
+	if ((!updateMatching(Gp->nbVertices,Gt->nbVertices,D->nbVal,D->firstVal,D->val,D->globalMatchingP)) ||
+		(!ensureGACallDiff(induced,Gp,Gt,D))){
 		nbFail++;
 		return printStats(false);
 	}
-	
-	// Initialize domains
-	Tdomain D;       // Domains
-	if (!initDomains(initialDomains, fileNameD, &D, &Gp, &Gt))
-		return printStats(false);
-	
-	// Check the global all different constraint
-	if ((!updateMatching(Gp.nbVertices,Gt.nbVertices,D.nbVal,D.firstVal,D.val,D.globalMatchingP)) ||
-		(!ensureGACallDiff(induced,&Gp,&Gt,&D))){
-		nbFail++;
-		return printStats(false);
-	}
+
+	// Math all vertices with singleton domains                                                                                                     
 	int u;
-	for (u=0; u<Gp.nbVertices; u++)
-		D.globalMatchingT[D.globalMatchingP[u]] = u;
-	
-	// Math all vertices with singleton domains
 	int nbToMatch = 0;
-	int toMatch[Gp.nbVertices];
-	for (u=0; u<Gp.nbVertices; u++)
-		if (D.nbVal[u] == 1) 
+	int toMatch[Gp->nbVertices];
+	for (u=0; u<Gp->nbVertices; u++){
+		D->globalMatchingT[D->globalMatchingP[u]] = u;
+		if (D->nbVal[u] == 1)
 			toMatch[nbToMatch++] = u;
-	if (!matchVertices(nbToMatch,toMatch,induced,&D,&Gp,&Gt)){
+	}
+	if (!matchVertices(nbToMatch,toMatch,induced,D,Gp,Gt)){
 		nbFail++;
 		return printStats(false);
 	}
 	
 	
 	// Solve
-	return printStats(!solve(timeLimit,firstSol, induced, verbose, &D, &Gp, &Gt));
+	return printStats(!solve(timeLimit,firstSol, induced, verbose, D, Gp, Gt));
 }
