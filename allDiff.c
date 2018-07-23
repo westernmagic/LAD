@@ -8,7 +8,7 @@
 #define toBeDeleted 3
 #define deleted 4
 
-void addToDelete(int u, int* list, int* nb, char* marked){
+void addToDelete(int u, int* list, int* nb, int* marked){
 	if (marked[u]<toBeDeleted){
 		list[(*nb)++]=u;
 		marked[u]=toBeDeleted; 
@@ -32,9 +32,15 @@ bool updateMatching(int sizeOfU, int sizeOfV, int* degree, int* firstAdj, int*  
 	
 	if (sizeOfU>sizeOfV) return false; // trivial case of infeasibility
 	
+	int matchedWithV[sizeOfV]; // matchedWithV[matchedWithU[u]]=u
+	int nbPred[sizeOfV]; // nbPred[i] = nb of predecessors of the ith vertex of V in the DAG
+	int pred[sizeOfV][sizeOfU]; // pred[i][j] = jth predecessor the ith vertex of V in the DAG
+	int nbSucc[sizeOfU]; // nbSucc[i] = nb of successors of the ith vertex of U in the DAG
+	int succ[sizeOfU][sizeOfV]; // succ[i][j] = jth successor of the ith vertex of U in the DAG
+	int listV[sizeOfV], listU[sizeOfU], listDV[sizeOfV], listDU[sizeOfU];
 	int nbV, nbU, nbDV, nbDU;
-	int i,j,k,stop,u,v,w;
-	char markedV[sizeOfV], markedU[sizeOfU];
+	int i,j,k,stop,u,v;
+	int markedV[sizeOfV], markedU[sizeOfU];
 	// markedX[i]=white if X[i] is not in the DAG
 	// markedX[i]=grey if X[i] has been added to the DAG, but not its successors
 	// markedX[i]=black if X[i] and its successors have been added to the DAG
@@ -43,7 +49,7 @@ bool updateMatching(int sizeOfU, int sizeOfV, int* degree, int* firstAdj, int*  
 	int nbUnmatched = 0; // number of vertices of U that are not matched 
 	int unmatched[sizeOfU]; // vertices of U that are not matched
 	int posInUnmatched[sizeOfU]; // unmatched[posInUnmatched[u]]=u
-
+	
 	// initialize matchedWithV and unmatched
 	memset(matchedWithV,-1,sizeOfV*sizeof(int));
 	for (u=0; u<sizeOfU; u++)
@@ -67,13 +73,12 @@ bool updateMatching(int sizeOfU, int sizeOfV, int* degree, int* firstAdj, int*  
 			posInUnmatched[unmatched[j]]=j;
 		}
 	}
-
 	
 	while (nbUnmatched > 0){ // Try to increase the number of matched vertices
 		// step 1 : build the DAG
-		memset(markedU,white,sizeOfU*sizeof(char));
+		memset(markedU,white,sizeOfU*sizeof(int));
 		memset(nbSucc,0,sizeOfU*sizeof(int));
-		memset(markedV,white,sizeOfV*sizeof(char));
+		memset(markedV,white,sizeOfV*sizeof(int));
 		memset(nbPred,0,sizeOfV*sizeof(int));
 		//first layer of the DAG from the free nodes of U
 		nbV=0;
@@ -126,7 +131,7 @@ bool updateMatching(int sizeOfU, int sizeOfV, int* degree, int* firstAdj, int*  
 		if (nbV==0) return false;
 		
 		// step 2: look for augmenting paths
-        for (k=0; k<nbV; k++){
+		for (k=0; k<nbV; k++){ 
 			v=listV[k];
 			if ((matchedWithV[v]==-1) && (nbPred[v]>0)){// v is the final node of an augmenting path
 				int path[sizeOfU+sizeOfV];
@@ -163,7 +168,6 @@ bool updateMatching(int sizeOfU, int sizeOfV, int* degree, int* firstAdj, int*  
 						u = listDU[--nbDU]; markedU[u]=deleted;
 						v=matchedWithU[u];
 						if (v!=-1) addToDelete(v,listDV,&nbDV,markedV);
-						j=0;
 						for (i=0; i<nbSucc[u]; i++){// delete edge (u,v)
 							v=succ[u][i];
 							for (j=0; ((j<nbPred[v]) && (u!=pred[v][j])); j++);
@@ -180,8 +184,7 @@ bool updateMatching(int sizeOfU, int sizeOfV, int* degree, int* firstAdj, int*  
 				// Update the matching wrt the augmenting path
 				while (length>1){
 					u=path[length-1]; v=path[length-2]; length-=2;
-					w=matchedWithV[v]; // match v with u instead of v with w
-					matchedWithU[u]=v; 
+					matchedWithU[u]=v;
 					matchedWithV[v]=u;
 				}
 			}
@@ -190,7 +193,7 @@ bool updateMatching(int sizeOfU, int sizeOfV, int* degree, int* firstAdj, int*  
 	return true;
 }
 
-void DFS(int nbU, int nbV, int u, bool* marked, int* nbSucc, int** succ, int* matchedWithU, int* order, int* nb){
+void DFS(int nbU, int nbV, int u, bool* marked, int* nbSucc, int succ[nbV][nbU], int* matchedWithU, int* order, int* nb){
 	// perform a depth first search, starting from u, in the bipartite graph Go=(U,V,E) such that
 	// U = vertices of Gp
 	// V = vertices of Gt
@@ -209,8 +212,8 @@ void DFS(int nbU, int nbV, int u, bool* marked, int* nbSucc, int** succ, int* ma
 }
 
 void SCC(int nbU, int nbV, int* numV, int* numU, 
-		 int* nbSucc, int** succ,
-		 int* nbPred, int** pred, int* matchedWithU,int* matchedWithV){
+		 int* nbSucc, int succ[nbV][nbU], 
+		 int* nbPred, int pred[nbU][nbV], int* matchedWithU,int* matchedWithV){
 	// postrelation: numV[v]==numU[u] iff they belong to the same
 	// strongly connected component in the bipartite graph Go=(U,V,E) such that
 	// U = vertices of Gp
@@ -224,7 +227,7 @@ void SCC(int nbU, int nbV, int* numV, int* numU,
 	int u, v, i, j, k, nbSCC, nb;
 	
 	// Order vertices of Gp wrt DFS
-	memset(marked,false,nbU*sizeof(int));
+	memset(marked,false,nbU*sizeof(bool));
 	nb=nbU-1;
 	for (u=0; u<nbU; u++)
 		if (!marked[u]) DFS(nbU,nbV,u,marked,nbSucc,succ,matchedWithU,order,&nb);
@@ -267,10 +270,10 @@ bool ensureGACallDiff(bool induced, Tgraph* Gp, Tgraph* Gt, Tdomain* D){
 	// Build the bipartite directed graph Go=(U,V,E) such that
 	// E = { (u,v) / u is a vertex of Gp which is matched to v (i.e., v=D->globalMatchingP[u])} U
 	//     { (v,u) / v is a vertex of Gt which is in D(u) but is not matched to u}
-	//int nbPred[Gp->nbVertices]; // nbPred[u] = nb of predecessors of u in Go
-	//int pred[Gp->nbVertices][Gt->nbVertices]; // pred[u][i] = ith predecessor of u in Go
-	//int nbSucc[Gt->nbVertices]; // nbSucc[v] = nb of successors of v in Go
-	//int succ[Gt->nbVertices][Gp->nbVertices]; // succ[v][i] = ith successor of v in Go
+	int nbPred[Gp->nbVertices]; // nbPred[u] = nb of predecessors of u in Go
+	int pred[Gp->nbVertices][Gt->nbVertices]; // pred[u][i] = ith predecessor of u in Go
+	int nbSucc[Gt->nbVertices]; // nbSucc[v] = nb of successors of v in Go
+	int succ[Gt->nbVertices][Gp->nbVertices]; // succ[v][i] = ith successor of v in Go
 	int u,v,i,w,oldNbVal,nbToMatch;
 	int numV[Gt->nbVertices], numU[Gp->nbVertices], toMatch[Gp->nbVertices];
 	bool used[Gp->nbVertices][Gt->nbVertices];

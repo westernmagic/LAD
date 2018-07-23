@@ -38,7 +38,7 @@ bool toFilterEmpty(Tdomain* D){
 
 void resetToFilter(Tdomain *D, int size){
 	// empty to filter and unmark the vertices that are marked to be filtered
-	memset(D->markedToFilter,false,size);
+	memset(D->markedToFilter,false,size*sizeof(bool));
 	D->nextOutToFilter = -1;
 }
 
@@ -87,7 +87,7 @@ bool augmentingPath(int u, Tdomain* D, int nbV){
 	int nextOut = 0;
 	int i, v, v2, u2;
 	bool marked[nbV];
-	memset(marked,false,nbV);
+	memset(marked,false,nbV*sizeof(bool));
 	for (i=0; i<D->nbVal[u]; i++){
 		v = D->val[D->firstVal[u]+i];// v in D(u)
 		if (D->globalMatchingT[v]<0){// v is free => augmenting path found
@@ -141,12 +141,12 @@ bool removeAllValuesButOne(int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 	D->posInVal[u][D->val[newPos]] = newPos;
 	D->posInVal[u][D->val[oldPos]] = oldPos;
 	D->nbVal[u] = 1;
-	// update global matchings that support the global all different constraint
-	if (D->globalMatchingP[u]!=v){
-		D->globalMatchingT[D->globalMatchingP[u]]=-1;
-		D->globalMatchingP[u]=-1;
-		return augmentingPath(u,D,Gt->nbVertices);
-	}
+    // update global matchings that support the global all different constraint
+    if (D->globalMatchingP[u]!=v){
+        D->globalMatchingT[D->globalMatchingP[u]]=-1;
+        D->globalMatchingP[u]=-1;
+        return augmentingPath(u,D,Gt->nbVertices);
+    }
 	return true;
 }
 
@@ -167,16 +167,16 @@ bool removeValue(int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 	D->val[newPos] = v;
 	D->posInVal[u][D->val[oldPos]] = oldPos;
 	D->posInVal[u][D->val[newPos]] = newPos;
-	// update global matchings that support the global all different constraint
-	if (D->globalMatchingP[u]==v){
-		D->globalMatchingP[u]=-1;
-		D->globalMatchingT[v]=-1;
-		return augmentingPath(u,D,Gt->nbVertices);
-	}
+    // update global matchings that support the global all different constraint
+    if (D->globalMatchingP[u]==v){
+        D->globalMatchingP[u]=-1;
+        D->globalMatchingT[v]=-1;
+        return augmentingPath(u,D,Gt->nbVertices);
+    }
 	return true;
 }
 
-bool isCompatible(bool induced, int dirGp, int dirGt){
+bool isCompatible(bool induced, char dirGp, char dirGt){
 	if (dirGp == dirGt) return true;
 	if (induced) return false;
 	if (dirGt == 3) return true;
@@ -196,13 +196,13 @@ bool matchVertices(int nb, int* toBeMatched, bool induced, Tdomain* D, Tgraph* G
 		v = D->val[D->firstVal[u]]; 
 		// match u to v
 		for (u2=0; u2<Gp->nbVertices; u2++){
-			if (u != u2){
+			if (u != u2 && D->val[D->firstVal[u2]] != -1){
 				oldNbVal = D->nbVal[u2];
 				if (isInD(u2,v,D) && !removeValue(u2,v,D,Gp,Gt)) return false;
 				if (Gp->edgeDirection[u][u2] != 0){// remove from D[u2] vertices which are not adjacent to v
 					j=D->firstVal[u2]; 
 					while (j<D->firstVal[u2]+D->nbVal[u2]){
-						if ((!Gp->isLabelled || compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][D->val[j]]))
+						if ((compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][D->val[j]]))
 							&& (isCompatible(induced, Gp->edgeDirection[u][u2], Gt->edgeDirection[v][D->val[j]]))) j++;
 						else if (!removeValue(u2,D->val[j],D,Gp,Gt)) return false;
 					}
@@ -211,13 +211,13 @@ bool matchVertices(int nb, int* toBeMatched, bool induced, Tdomain* D, Tgraph* G
 					j=D->firstVal[u2]; 
 					while (j<D->firstVal[u2]+D->nbVal[u2]){
 						if (Gt->edgeDirection[v][D->val[j]] == 0) j++;
-						else if (!removeValue(u2,D->val[j],D,Gp,Gt)) return false;
+						else if (!removeValue( u2,D->val[j],D,Gp,Gt)) return false;
 					}
 				}
 				if (D->nbVal[u2] == 0) return false; // D[u2] is empty
 				if ((D->nbVal[u2] == 1) && (oldNbVal > 1)) toBeMatched[nb++]=u2;
 			}			
-		}
+        }
 	}
 	return true;
 }
@@ -234,62 +234,12 @@ bool matchVertex(int u, bool induced, Tdomain* D, Tgraph* Gp, Tgraph *Gt){
 	return matchVertices(1,toBeMatched,induced,D,Gp,Gt);
 }
 
-
-int qcompare (void const *a, void const *b){
-	// function used by the qsort function
-	int pa = *((int*)a) - *((int*)b);
-	return pa;
-}
-
-bool compare(int size_mu, int* mu, int size_mv, int* mv){
-	// return true if for every element u of mu there exists
-	// a different element v of mv such that u <= v; 
-	// return false otherwise
-	int i, j;
-	qsort(mu, size_mu, sizeof(int), qcompare);
-	qsort(mv, size_mv, sizeof(int), qcompare);
-	i = size_mv-1;
-	for (j=size_mu-1; j>=0; j--){
-		if (mu[j]>mv[i]) return false;
-		i--;
-	}
-	return true;
-}
-
-bool compatibleVertices(bool induced, int u, int v, Tgraph* Gp, Tgraph* Gt){
-    if (Gp->isLoop[u] != Gt->isLoop[v]){
-        if ((induced) || (Gp->isLoop[u]))
-            return false;
-    }
-	if (Gp->isLabelled && !compatibleVertexLabels(Gp->vertexLabel[u], Gt->vertexLabel[v]))
-		return false;
-	if (!Gp->isDirected && !Gt->isDirected){ // non directed graphs
-		if (Gp->nbAdj[u] > Gt->nbAdj[v]) return false;
-		int i, mu[Gp->nbAdj[u]], mv[Gt->nbAdj[v]];
-		for (i=0; i<Gp->nbAdj[u]; i++) mu[i]=Gp->nbAdj[Gp->adj[u][i]];
-		for (i=0; i<Gt->nbAdj[v]; i++) mv[i]=Gt->nbAdj[Gt->adj[v][i]];
-		return compare(Gp->nbAdj[u], mu, Gt->nbAdj[v], mv);
-	}
-	// directed graphs
-	if (induced){
-		if (Gp->nbPred[u] > Gt->nbPred[v]) return false;
-		if (Gp->nbSucc[u] > Gt->nbSucc[v]) return false;
-		if (Gp->nbAdj[u] - Gp->nbPred[u] - Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v] - Gt->nbSucc[v]) return false;
-		return true;
-	}
-	if (Gp->nbAdj[u] > Gt->nbAdj[v]) return false;
-	if (Gp->nbPred[u] > Gt->nbAdj[v] - Gt->nbSucc[v]) return false;
-	if (Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v]) return false;
-	if (Gp->nbAdj[u] - Gp->nbPred[u] - Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v] - Gt->nbSucc[v]) return false;
-	return true;
-}
-
 Tdomain* createDomains(Tgraph* Gp, Tgraph* Gt){
 	Tdomain* D = (Tdomain*)malloc(sizeof(Tdomain));
-	D->globalMatchingP = (int*)malloc(sizeof(int)*Gp->nbVertices);
-	memset(D->globalMatchingP,-1,sizeof(int)*Gp->nbVertices);
-	D->globalMatchingT = (int*)malloc(sizeof(int)*Gt->nbVertices);
-	memset(D->globalMatchingT,-1,sizeof(int)*Gt->nbVertices);
+    D->globalMatchingP = (int*)malloc(sizeof(int)*Gp->nbVertices);
+    memset(D->globalMatchingP,-1,sizeof(int)*Gp->nbVertices);
+    D->globalMatchingT = (int*)malloc(sizeof(int)*Gt->nbVertices);
+    memset(D->globalMatchingT,-1,sizeof(int)*Gt->nbVertices);
 	D->nbVal = (int*)malloc(sizeof(int)*Gp->nbVertices);
 	D->firstVal = (int*)malloc(sizeof(int)*Gp->nbVertices);
 	D->posInVal = (int**)malloc(sizeof(int*)*Gp->nbVertices);  
@@ -306,31 +256,90 @@ bool initDomains(bool induced, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 	// if initialDomains, then filter initial domains wrt compatibilities given in file
 	// return false if a domain is empty and true otherwise
 	int val[Gp->nbVertices*Gt->nbVertices];
-	int matchingSize, u, v, i, valSize;
+	int matchingSize, u, v, valSize;
+    int mu[Gp->maxDegree+1];
+    int mv[Gt->nbVertices][Gp->maxDegree+1];
 	matchingSize = 0;
 	valSize = 0;
-	for (u=0; u<Gp->nbVertices; u++){
-		D->markedToFilter[u] = true;
-		D->toFilter[u] = u;
-		D->nbVal[u] = 0;
-		D->posInVal[u] = (int*)malloc(sizeof(int)*Gt->nbVertices);
-		D->firstMatch[u] = (int*)malloc(sizeof(int)*Gt->nbVertices);
-		D->firstVal[u] = valSize;
-		for (v=0; v<Gt->nbVertices; v++){
-			if (!compatibleVertices(induced, u, v, Gp, Gt)) // v not in D(u)
-				D->posInVal[u][v] = D->firstVal[u]+Gt->nbVertices;
-			else { // v in D[u]
-				D->firstMatch[u][v] = matchingSize;
-				matchingSize += Gp->nbAdj[u];
-				val[valSize] = v;
-				D->nbVal[u]++;
-				D->posInVal[u][v] = valSize++;
-			}
-		}
-		if (D->nbVal[u]==0) return 0; // empty domain
-	}
+    memset(mv,0,(Gp->maxDegree+1)*Gt->nbVertices*sizeof(int));
+    for (int v=0; v<Gt->nbVertices; v++){
+        for (int i=0; i<Gt->nbAdj[v]; i++){
+            if (Gt->nbAdj[Gt->adj[v][i]] < Gp->maxDegree)
+                mv[v][Gt->nbAdj[Gt->adj[v][i]]]++;
+            else
+                mv[v][Gp->maxDegree]++;
+        }
+    }
+    for (u=0; u<Gp->nbVertices; u++){
+        D->markedToFilter[u] = true;
+        D->toFilter[u] = u;
+        D->nbVal[u] = 0;
+        D->posInVal[u] = (int*)malloc(sizeof(int)*Gt->nbVertices);
+        D->firstMatch[u] = (int*)malloc(sizeof(int)*Gt->nbVertices);
+        D->firstVal[u] = valSize;
+        memset(mu,0,(Gp->maxDegree+1)*sizeof(int));
+        for (int i=0; i<Gp->nbAdj[u]; i++) mu[Gp->nbAdj[Gp->adj[u][i]]]++;
+        for (v=0; v<Gt->nbVertices; v++){
+            bool isCompatible = true;
+            if ((Gp->isLoop[u] != Gt->isLoop[v]) && ((induced) || (Gp->isLoop[u])))
+                isCompatible = false;
+            else if (!compatibleVertexLabels(Gp->vertexLabel[u], Gt->vertexLabel[v]))
+                isCompatible = false;
+            else if (!Gp->isDirected && !Gt->isDirected){ // non directed graphs
+                if (Gp->nbAdj[u] > Gt->nbAdj[v])
+                    isCompatible = false;
+                else{
+                    int total = 0;
+                    for (int j=Gp->maxDegree; ((j>=0) && (total >=0)); j--){
+                        total += mv[v][j] - mu[j];
+                    }
+                    if (total < 0)
+                        isCompatible = false;
+                }
+            }
+            else{ // directed graphs
+                if (induced){
+                    if ((Gp->nbPred[u] > Gt->nbPred[v]) ||
+                        (Gp->nbSucc[u] > Gt->nbSucc[v]) ||
+                        (Gp->nbAdj[u] - Gp->nbPred[u] - Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v] - Gt->nbSucc[v]))
+                        isCompatible = false;
+                    else{
+                        int total = 0;
+                        for (int j=Gp->maxDegree; ((j>=0) && (total >=0)); j--){
+                            total += mv[v][j] - mu[j];
+                        }
+                        if (total < 0)
+                            isCompatible = false;
+                    }
+                }
+                else if ((Gp->nbAdj[u] > Gt->nbAdj[v]) ||
+                         (Gp->nbPred[u] > Gt->nbAdj[v] - Gt->nbSucc[v]) ||
+                         (Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v]) ||
+                         (Gp->nbAdj[u] - Gp->nbPred[u] - Gp->nbSucc[u] > Gt->nbAdj[v] - Gt->nbPred[v] - Gt->nbSucc[v]))
+                    isCompatible =  false;
+                else{
+                    int total = 0;
+                    for (int j=Gp->maxDegree; ((j>=0) && (total >=0)); j--){
+                        total += mv[v][j] - mu[j];
+                    }
+                    if (total < 0)
+                        isCompatible = false;
+                }
+            }
+            if (!isCompatible) // v not in D(u)
+                D->posInVal[u][v] = D->firstVal[u]+Gt->nbVertices;
+            else { // v in D[u]
+                D->firstMatch[u][v] = matchingSize;
+                matchingSize += Gp->nbAdj[u];
+                val[valSize] = v;
+                D->nbVal[u]++;
+                D->posInVal[u][v] = valSize++;
+            }
+        }
+        if (D->nbVal[u]==0) return 0; // empty domain
+    }
 	D->val = (int*)malloc(sizeof(int)*valSize);
-	for (i=0; i<valSize; i++) D->val[i] = val[i];
+    memcpy(D->val, val, sizeof(int)*valSize);
 	D->matching = (int*)malloc(sizeof(int)*matchingSize);
 	memset(D->matching,-1,sizeof(int)*matchingSize);
 	D->nextOutToFilter = 0;

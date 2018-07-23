@@ -14,7 +14,7 @@ bool checkLAD(bool induced, int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 		if ((v2 != -1) && (isInD(u2,v2,D))) return true;
 		// look for a support of edge (u,u2) for v
 		for (i=D->firstVal[u2]; i<D->firstVal[u2]+D->nbVal[u2]; i++){
-		  if ((!Gp->isLabelled || compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][D->val[i]]))
+		  if ((compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][D->val[i]]))
 			  && (isCompatible(induced, Gp->edgeDirection[u][u2], Gt->edgeDirection[v][D->val[i]]))){
 				D->matching[D->firstMatch[u][v]] = D->val[i];
 				return true;
@@ -53,7 +53,7 @@ bool checkLAD(bool induced, int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 		if (D->nbVal[u2]>Gt->nbAdj[v]){
 			for (j=D->firstVal[u2]; j<D->firstVal[u2]+D->nbVal[u2]; j++){
 				v2 = D->val[j]; // v2 belongs to D[u2]
-				if ((!Gp->isLabelled || compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][v2])) &&
+				if ((compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][v2])) &&
 					(isCompatible(induced, Gp->edgeDirection[u][u2], Gt->edgeDirection[v][v2]))){ 
 					// v2 is a successor of v and the label of (u,u2) is equal to the label of (v,v2)  
 					if (num[v2]<0){ // v2 has not yet been added to V
@@ -68,7 +68,7 @@ bool checkLAD(bool induced, int u, int v, Tdomain* D, Tgraph* Gp, Tgraph* Gt){
 		else{
 			for (j=0; j<Gt->nbAdj[v]; j++){
 				v2 = Gt->adj[v][j]; // v2 is a successor of v
-				if ((isInD(u2,v2,D)) && (!Gp->isLabelled || compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][v2])) &&
+				if ((isInD(u2,v2,D)) && (compatibleEdgeLabels(Gp->edgeLabel[u][u2], Gt->edgeLabel[v][v2])) &&
 					(isCompatible(induced, Gp->edgeDirection[u][u2], Gt->edgeDirection[v][v2]))){ 
 					// v2 belongs to D[u2]  and the label of (u,u2) is equal to the label of (v,v2)
 					if (num[v2]<0){ // v2 has not yet been added to V
